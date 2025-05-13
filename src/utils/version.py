@@ -10,7 +10,7 @@ from typing import Dict, Tuple
 
 
 # Version information
-__version__ = "0.5.0"  # Use semantic versioning: MAJOR.MINOR.PATCH
+__version__ = "0.6.0"  # Use semantic versioning: MAJOR.MINOR.PATCH
 
 
 def parse_version(version_str: str) -> Tuple[int, int, int]:

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.0] - 2025-05-14
+
+pytest-xdist, isort, pre-commit version fix
+
+
 ## [0.5.0] - 2025-05-14
 
 fixed pytest-cov version
