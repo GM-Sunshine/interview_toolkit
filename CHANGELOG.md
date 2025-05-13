@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.5.0] - 2025-05-14
+
+fixed pytest-cov version
+
+
 ## [0.4.0] - 2025-05-14
 
 fixed pydantic version
