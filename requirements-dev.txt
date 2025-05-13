@@ -1,0 +1,16 @@
+# Testing dependencies
+pytest>=8.0.0
+pytest-cov>=6.0.0
+pytest-xdist>=3.6.0
+
+# Code quality tools
+black>=24.3.0
+isort>=5.12.0
+flake8>=6.1.0
+mypy>=1.9.0
+pre-commit>=3.8.0
+pydocstyle>=6.0.0
+pylint>=3.1.0
+
+# Type checking stubs for external libraries
+types-requests>=2.31.0 
