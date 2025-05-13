@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.0] - 2025-05-14
+
+Launched Interview Toolkit — your AI sidekick for killer questions & slick PDFs! 
+
+
 All notable changes to the Interview Toolkit project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
