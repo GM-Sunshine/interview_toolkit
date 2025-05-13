@@ -10,10 +10,10 @@ readme = "README.md"
 requires-python = ">=3.8"
 license = {file = "LICENSE"}
 authors = [
-    {name = "Nick G", email = "nick@example.com"}
+    {name = "Nick G", email = "nick@gm-sunshine.com"}
 ]
 maintainers = [
-    {name = "Nick G", email = "nick@example.com"}
+    {name = "Nick G", email = "nick@gm-sunshine.com"}
 ]
 keywords = ["interview", "questions", "ai", "pdf", "generator"]
 classifiers = [
@@ -36,7 +36,7 @@ dependencies = [
     "reportlab>=4.1.0",
     "requests>=2.31.0",
     "rich>=13.7.0",
-    "pillow>=11.2.1",
+    "pillow>=10.0.0",
     "qrcode>=7.4.2",
     "pydantic>=2.11.4",
     "python-dotenv>=1.0.0",
@@ -58,9 +58,9 @@ dev = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/yourusername/interview_toolkit"
-"Bug Tracker" = "https://github.com/yourusername/interview_toolkit/issues"
-"Documentation" = "https://github.com/yourusername/interview_toolkit#readme"
+"Homepage" = "https://github.com/GM-Sunshine/interview_toolkit"
+"Bug Tracker" = "https://github.com/GM-Sunshine/interview_toolkit/issues"
+"Documentation" = "https://github.com/GM-Sunshine/interview_toolkit#readme"
 
 [project.scripts]
 interview-toolkit = "interview_toolkit:main"
