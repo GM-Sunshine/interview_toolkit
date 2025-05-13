@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.4.0] - 2025-05-14
+
+fixed pydantic version
+
+
 ## [0.3.0] - 2025-05-14
 
 fixed pillow version
