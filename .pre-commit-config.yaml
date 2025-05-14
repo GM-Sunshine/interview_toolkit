@@ -1,0 +1,45 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+    -   id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+    -   id: check-added-large-files
+        args: ['--maxkb=500']
+    -   id: check-ast
+    -   id: check-json
+    -   id: check-merge-conflict
+    -   id: detect-private-key
+    -   id: check-executables-have-shebangs
+    -   id: check-shebang-scripts-are-executable
+    -   id: debug-statements
+
+-   repo: https://github.com/psf/black
+    rev: 24.3.0
+    hooks:
+    -   id: black
+        language_version: python3
+
+-   repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+    -   id: mypy
+        additional_dependencies: [types-requests, types-PyYAML, types-reportlab]
+        exclude: ^tests/
+        args: [--config-file=mypy.ini]
+
+-   repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+    -   id: isort
+
+-   repo: https://github.com/asottile/pyupgrade
+    rev: v3.15.0
+    hooks:
+    -   id: pyupgrade
+        args: [--py38-plus]
+
+default_language_version:
+  python: python3 
