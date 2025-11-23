@@ -78,6 +78,7 @@ site/
 .env.production.local
 
 # Cache directories
+.cache/
 .mypy_cache/
 .dmypy.json
 dmypy.json

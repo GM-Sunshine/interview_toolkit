@@ -21,186 +21,34 @@ class TextRenderer:
     in a PDF document.
     """
 
-    def __init__(self, colors):
-        """
-        Initialize the text renderer with the color scheme.
+    # Class-level constant: Technical terms dictionary (initialized once)
+    # This dictionary is shared across all instances for better performance
+    _TECH_TERMS = None
 
-        Args:
-            colors: Dictionary of colors to use for rendering
-        """
-        self.colors = colors
-        self.styles = getSampleStyleSheet()
+    # Class-level constant: Command patterns
+    _COMMAND_PATTERNS = [
+        r"«CMD»([^«]+?)«/CMD»",  # More restrictive CMD pattern - must be first
+        r"'\s*(systemctl\s+(?:start|stop|enable|disable|status)\s+[\w\-\.]+)\s*'",
+        r"'\s*(ps\s+aux)\s*'",
+        r"'\s*(ps)\s*'",
+        r"'\s*(kill\s+-9\s+\d+)\s*'",
+        r"'\s*(kill\s+\d+)\s*'",
+        r"'\s*(pgrep\s+[\w\-\.]+)\s*'",
+        r"'\s*(pkill\s+[\w\-\.]+)\s*'",
+        r"'\s*(valgrind\s+--leak-check=full\s+\./[\w\-\.]+)\s*'",
+        r"'\s*(ps\s+[\-a-zA-Z]+)\s*'",
+    ]
 
-        # Determine if we're using a dark theme based on the background color
-        self.is_dark_theme = False
-        if "background" in colors:
-            bg_color = colors["background"]
-            # Check if it's a tuple of RGB values
-            if isinstance(bg_color, tuple) and len(bg_color) >= 3:
-                # If the average RGB value is less than 0.5, it's a dark theme
-                avg_value = sum(bg_color[:3]) / 3
-                if avg_value < 0.5:
-                    self.is_dark_theme = True
+    @classmethod
+    def _get_tech_terms(cls):
+        """Get or initialize the tech terms dictionary (lazy initialization)."""
+        if cls._TECH_TERMS is None:
+            cls._TECH_TERMS = cls._init_tech_terms_static()
+        return cls._TECH_TERMS
 
-        # Improved IDE-style color schemes for different code elements with more vibrant colors
-        # Make colors more vibrant for better visibility in PDF
-        self.code_colors = {
-            "keyword": (0.0, 0.0, 1.0),  # Bright Blue for keywords
-            "decorator": (0.7, 0.0, 0.7),  # Bright Purple for decorators
-            "function": (1.0, 0.4, 0.0),  # Bright Orange for functions
-            "string": (0.0, 0.7, 0.0),  # Bright Green for strings
-            "number": (1.0, 0.0, 0.0),  # Bright Red for numbers
-            "comment": (0.5, 0.5, 0.5),  # Gray for comments
-            "type": (0.0, 0.6, 0.6),  # Bright Teal for types
-            "command": (0.7, 0.4, 0.0),  # Bright Brown for commands
-            "default": (0.0, 0.0, 0.0),  # Black for other code
-        }
-
-        # For dark theme, adjust the code colors for better contrast
-        if self.is_dark_theme:
-            self.code_colors = {
-                "keyword": (0.4, 0.4, 1.0),  # Lighter Blue for keywords
-                "decorator": (0.9, 0.4, 0.9),  # Lighter Purple for decorators
-                "function": (1.0, 0.6, 0.2),  # Lighter Orange for functions
-                "string": (0.4, 0.9, 0.4),  # Lighter Green for strings
-                "number": (1.0, 0.4, 0.4),  # Lighter Red for numbers
-                "comment": (0.7, 0.7, 0.7),  # Lighter Gray for comments
-                "type": (0.4, 0.8, 0.8),  # Lighter Teal for types
-                "command": (0.9, 0.6, 0.2),  # Lighter Brown for commands
-                "default": (0.9, 0.9, 0.9),  # Off-white for other code
-            }
-
-        # Technical terms to highlight with their categories
-        self.tech_terms = self._init_tech_terms()
-        # Sort terms by length (longest first) to avoid partial matches
-        self.sorted_terms = sorted(self.tech_terms.keys(), key=len, reverse=True)
-
-        # Add common keywords that should NOT be highlighted when they appear as part of normal text
-        self.exclude_standalone = {
-            "for",
-            "while",
-            "if",
-            "in",
-            "of",
-            "on",
-            "at",
-            "to",
-            "by",
-            "is",
-            "are",
-            "was",
-            "were",
-            "the",
-            "a",
-            "an",
-            "and",
-            "or",
-            "but",
-            "not",
-            "with",
-            "without",
-            "from",
-            "into",
-            "onto",
-            "over",
-            "under",
-            "above",
-            "below",
-            "between",
-            "among",
-            "through",
-            "across",
-            "around",
-            "about",
-            "against",
-            "along",
-            "before",
-            "after",
-            "during",
-            "since",
-            "until",
-            "till",
-            "up",
-            "down",
-            "out",
-            "off",
-            "away",
-            "back",
-            "forward",
-            "together",
-            "apart",
-            "aside",
-            "as",
-            "like",
-            "than",
-            "that",
-            "this",
-            "these",
-            "those",
-            "which",
-            "who",
-            "whom",
-            "whose",
-            "what",
-            "when",
-            "where",
-            "why",
-            "how",
-            "all",
-            "any",
-            "both",
-            "each",
-            "few",
-            "more",
-            "most",
-            "other",
-            "some",
-            "such",
-            "no",
-            "nor",
-            "neither",
-            "either",
-            "whether",
-            "yet",
-            "so",
-            "then",
-            "too",
-            "very",
-            "can",
-            "will",
-            "just",
-            "don",
-            "should",
-            "now",
-        }
-
-    def draw_paragraph(self, canvas, text, style, x, y, width, height=None):
-        """
-        Draw a paragraph of text on the canvas.
-
-        Args:
-            canvas: The ReportLab canvas to draw on
-            text: The text to draw
-            style: The ParagraphStyle to use
-            x: The x-coordinate for the left edge of the paragraph
-            y: The y-coordinate for the top edge of the paragraph
-            width: The width of the paragraph
-            height: Optional height constraint for the paragraph
-
-        Returns:
-            The height of the rendered paragraph
-        """
-        p = Paragraph(text, style)
-        w, h = p.wrap(width, 1000)  # 1000 is arbitrarily large
-
-        if height is None:
-            height = h
-
-        p.drawOn(canvas, x, y - h)
-        return h
-
-    def _init_tech_terms(self):
-        """Initialize the technical terms dictionary"""
+    @staticmethod
+    def _init_tech_terms_static():
+        """Initialize the technical terms dictionary (static method for class-level init)."""
         tech_terms = {
             # Keywords and language features
             "async": "keyword",
@@ -427,20 +275,6 @@ class TextRenderer:
             "daemon": "default",
         }
 
-        # Add command patterns that should be matched as whole phrases
-        self.command_patterns = [
-            r"«CMD»([^«]+?)«/CMD»",  # More restrictive CMD pattern - must be first
-            r"'\s*(systemctl\s+(?:start|stop|enable|disable|status)\s+[\w\-\.]+)\s*'",
-            r"'\s*(ps\s+aux)\s*'",
-            r"'\s*(ps)\s*'",
-            r"'\s*(kill\s+-9\s+\d+)\s*'",
-            r"'\s*(kill\s+\d+)\s*'",
-            r"'\s*(pgrep\s+[\w\-\.]+)\s*'",
-            r"'\s*(pkill\s+[\w\-\.]+)\s*'",
-            r"'\s*(valgrind\s+--leak-check=full\s+\./[\w\-\.]+)\s*'",
-            r"'\s*(ps\s+[\-a-zA-Z]+)\s*'",
-        ]
-
         # Add more common terms with default styling
         common_terms = [
             "component",
@@ -512,6 +346,186 @@ class TextRenderer:
                 tech_terms[term] = "default"
 
         return tech_terms
+
+    def __init__(self, colors):
+        """
+        Initialize the text renderer with the color scheme.
+
+        Args:
+            colors: Dictionary of colors to use for rendering
+        """
+        self.colors = colors
+        self.styles = getSampleStyleSheet()
+
+        # Determine if we're using a dark theme based on the background color
+        self.is_dark_theme = False
+        if "background" in colors:
+            bg_color = colors["background"]
+            # Check if it's a tuple of RGB values
+            if isinstance(bg_color, tuple) and len(bg_color) >= 3:
+                # If the average RGB value is less than 0.5, it's a dark theme
+                avg_value = sum(bg_color[:3]) / 3
+                if avg_value < 0.5:
+                    self.is_dark_theme = True
+
+        # Improved IDE-style color schemes for different code elements with more vibrant colors
+        # Make colors more vibrant for better visibility in PDF
+        self.code_colors = {
+            "keyword": (0.0, 0.0, 1.0),  # Bright Blue for keywords
+            "decorator": (0.7, 0.0, 0.7),  # Bright Purple for decorators
+            "function": (1.0, 0.4, 0.0),  # Bright Orange for functions
+            "string": (0.0, 0.7, 0.0),  # Bright Green for strings
+            "number": (1.0, 0.0, 0.0),  # Bright Red for numbers
+            "comment": (0.5, 0.5, 0.5),  # Gray for comments
+            "type": (0.0, 0.6, 0.6),  # Bright Teal for types
+            "command": (0.7, 0.4, 0.0),  # Bright Brown for commands
+            "default": (0.0, 0.0, 0.0),  # Black for other code
+        }
+
+        # For dark theme, adjust the code colors for better contrast
+        if self.is_dark_theme:
+            self.code_colors = {
+                "keyword": (0.4, 0.4, 1.0),  # Lighter Blue for keywords
+                "decorator": (0.9, 0.4, 0.9),  # Lighter Purple for decorators
+                "function": (1.0, 0.6, 0.2),  # Lighter Orange for functions
+                "string": (0.4, 0.9, 0.4),  # Lighter Green for strings
+                "number": (1.0, 0.4, 0.4),  # Lighter Red for numbers
+                "comment": (0.7, 0.7, 0.7),  # Lighter Gray for comments
+                "type": (0.4, 0.8, 0.8),  # Lighter Teal for types
+                "command": (0.9, 0.6, 0.2),  # Lighter Brown for commands
+                "default": (0.9, 0.9, 0.9),  # Off-white for other code
+            }
+
+        # Technical terms to highlight with their categories (use class-level constant)
+        self.tech_terms = self._get_tech_terms()
+        # Sort terms by length (longest first) to avoid partial matches
+        self.sorted_terms = sorted(self.tech_terms.keys(), key=len, reverse=True)
+        # Use class-level command patterns
+        self.command_patterns = self._COMMAND_PATTERNS
+
+        # Add common keywords that should NOT be highlighted when they appear as part of normal text
+        self.exclude_standalone = {
+            "for",
+            "while",
+            "if",
+            "in",
+            "of",
+            "on",
+            "at",
+            "to",
+            "by",
+            "is",
+            "are",
+            "was",
+            "were",
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "but",
+            "not",
+            "with",
+            "without",
+            "from",
+            "into",
+            "onto",
+            "over",
+            "under",
+            "above",
+            "below",
+            "between",
+            "among",
+            "through",
+            "across",
+            "around",
+            "about",
+            "against",
+            "along",
+            "before",
+            "after",
+            "during",
+            "since",
+            "until",
+            "till",
+            "up",
+            "down",
+            "out",
+            "off",
+            "away",
+            "back",
+            "forward",
+            "together",
+            "apart",
+            "aside",
+            "as",
+            "like",
+            "than",
+            "that",
+            "this",
+            "these",
+            "those",
+            "which",
+            "who",
+            "whom",
+            "whose",
+            "what",
+            "when",
+            "where",
+            "why",
+            "how",
+            "all",
+            "any",
+            "both",
+            "each",
+            "few",
+            "more",
+            "most",
+            "other",
+            "some",
+            "such",
+            "no",
+            "nor",
+            "neither",
+            "either",
+            "whether",
+            "yet",
+            "so",
+            "then",
+            "too",
+            "very",
+            "can",
+            "will",
+            "just",
+            "don",
+            "should",
+            "now",
+        }
+
+    def draw_paragraph(self, canvas, text, style, x, y, width, height=None):
+        """
+        Draw a paragraph of text on the canvas.
+
+        Args:
+            canvas: The ReportLab canvas to draw on
+            text: The text to draw
+            style: The ParagraphStyle to use
+            x: The x-coordinate for the left edge of the paragraph
+            y: The y-coordinate for the top edge of the paragraph
+            width: The width of the paragraph
+            height: Optional height constraint for the paragraph
+
+        Returns:
+            The height of the rendered paragraph
+        """
+        p = Paragraph(text, style)
+        w, h = p.wrap(width, 1000)  # 1000 is arbitrarily large
+
+        if height is None:
+            height = h
+
+        p.drawOn(canvas, x, y - h)
+        return h
 
     def _clean_text(self, text):
         """Remove all existing markers and normalize the text"""
