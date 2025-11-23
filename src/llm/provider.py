@@ -4,7 +4,10 @@ LLM Provider module for the Interview Toolkit.
 This module provides interfaces to different LLM providers (OpenAI, Ollama).
 """
 
+import hashlib
 import json
+import os
+import random
 import time
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, Union
@@ -129,6 +132,148 @@ class RateLimiter:
             return True
 
 
+class ResponseCache:
+    """
+    Cache for LLM responses to avoid redundant API calls.
+
+    Uses an in-memory dictionary with optional file-based persistence.
+    Cache keys are SHA256 hashes of the prompt combination.
+    """
+
+    def __init__(self, cache_dir: str = ".cache", ttl: int = 86400):
+        """
+        Initialize the response cache.
+
+        Args:
+            cache_dir: Directory to store cache files (default: .cache)
+            ttl: Time to live for cache entries in seconds (default: 86400 = 24 hours)
+        """
+        self.cache_dir = cache_dir
+        self.ttl = ttl
+        self.memory_cache: Dict[str, Dict[str, Any]] = {}
+        self.lock = threading.Lock()
+
+        # Create cache directory if it doesn't exist
+        if cache_dir:
+            os.makedirs(cache_dir, exist_ok=True)
+
+    def _get_cache_key(self, system_prompt: str, user_prompt: str, **kwargs) -> str:
+        """
+        Generate a cache key from the prompts and parameters.
+
+        Args:
+            system_prompt: The system prompt
+            user_prompt: The user prompt
+            **kwargs: Additional parameters that affect the response
+
+        Returns:
+            SHA256 hash as cache key
+        """
+        # Include relevant kwargs that affect the response
+        cache_params = {
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "temperature": kwargs.get("temperature", 0.7),
+            "max_tokens": kwargs.get("max_tokens", 2000),
+        }
+
+        # Create hash from normalized JSON
+        cache_string = json.dumps(cache_params, sort_keys=True)
+        return hashlib.sha256(cache_string.encode()).hexdigest()
+
+    def get(self, system_prompt: str, user_prompt: str, **kwargs) -> Optional[str]:
+        """
+        Get a cached response if available and not expired.
+
+        Args:
+            system_prompt: The system prompt
+            user_prompt: The user prompt
+            **kwargs: Additional parameters
+
+        Returns:
+            Cached response or None if not found/expired
+        """
+        cache_key = self._get_cache_key(system_prompt, user_prompt, **kwargs)
+
+        with self.lock:
+            # Check memory cache first
+            if cache_key in self.memory_cache:
+                entry = self.memory_cache[cache_key]
+                if time.time() - entry["timestamp"] < self.ttl:
+                    return entry["response"]
+                else:
+                    # Expired, remove from cache
+                    del self.memory_cache[cache_key]
+
+            # Check file cache if enabled
+            if self.cache_dir:
+                cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
+                if os.path.exists(cache_file):
+                    try:
+                        with open(cache_file, "r", encoding="utf-8") as f:
+                            entry = json.load(f)
+
+                        if time.time() - entry["timestamp"] < self.ttl:
+                            # Load into memory cache
+                            self.memory_cache[cache_key] = entry
+                            return entry["response"]
+                        else:
+                            # Expired, remove file
+                            os.remove(cache_file)
+                    except (json.JSONDecodeError, KeyError, OSError):
+                        # Corrupted cache file, ignore
+                        pass
+
+        return None
+
+    def set(self, system_prompt: str, user_prompt: str, response: str, **kwargs) -> None:
+        """
+        Store a response in the cache.
+
+        Args:
+            system_prompt: The system prompt
+            user_prompt: The user prompt
+            response: The response to cache
+            **kwargs: Additional parameters
+        """
+        cache_key = self._get_cache_key(system_prompt, user_prompt, **kwargs)
+
+        entry = {
+            "response": response,
+            "timestamp": time.time()
+        }
+
+        with self.lock:
+            # Store in memory cache
+            self.memory_cache[cache_key] = entry
+
+            # Store in file cache if enabled
+            if self.cache_dir:
+                cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
+                try:
+                    with open(cache_file, "w", encoding="utf-8") as f:
+                        json.dump(entry, f)
+                except OSError:
+                    # Failed to write cache file, not critical
+                    pass
+
+    def clear(self) -> None:
+        """Clear all cached responses."""
+        with self.lock:
+            self.memory_cache.clear()
+
+            if self.cache_dir and os.path.exists(self.cache_dir):
+                for filename in os.listdir(self.cache_dir):
+                    if filename.endswith(".json"):
+                        try:
+                            os.remove(os.path.join(self.cache_dir, filename))
+                        except OSError:
+                            pass
+
+
+# Create global response cache
+response_cache = ResponseCache(cache_dir=".cache/llm_responses", ttl=86400)
+
 # Create rate limiters for different providers
 # OpenAI has a rate limit of 3 requests per second for free tier
 openai_limiter = RateLimiter(
@@ -177,8 +322,8 @@ def retry_with_exponential_backoff(
             if retry >= max_retries:
                 break
 
-            # Calculate delay with jitter
-            jitter = 1 + 0.2 * (2 * (0.5 - 0.5))  # Add 20% random jitter
+            # Calculate delay with jitter (±20% random jitter)
+            jitter = 1 + 0.2 * (2 * random.random() - 1)
             current_delay = min(delay * jitter, max_delay)
 
             # Log retry information
@@ -259,6 +404,7 @@ class OpenAIProvider(LLMProvider):
                 temperature: The temperature to use (default: DEFAULT_TEMPERATURE)
                 max_tokens: The maximum tokens to generate (default: DEFAULT_MAX_TOKENS)
                 debug: Whether to print debug information (default: False)
+                use_cache: Whether to use caching (default: True)
 
         Returns:
             The generated text
@@ -270,6 +416,15 @@ class OpenAIProvider(LLMProvider):
         """
         debug = kwargs.get("debug", False)
         max_retries = kwargs.get("max_retries", 3)
+        use_cache = kwargs.get("use_cache", True)
+
+        # Check cache first
+        if use_cache:
+            cached_response = response_cache.get(system_prompt, user_prompt, **kwargs)
+            if cached_response:
+                if debug:
+                    print("Using cached response")
+                return cached_response
 
         # Check rate limit
         if not openai_limiter.consume(1, wait=kwargs.get("wait_for_rate_limit", True)):
@@ -314,11 +469,17 @@ class OpenAIProvider(LLMProvider):
                     raise APIError(f"OpenAI API error: {str(e)}")
 
         # Retry with exponential backoff
-        return retry_with_exponential_backoff(
+        response = retry_with_exponential_backoff(
             _generate_completion,
             max_retries=max_retries,
             errors_to_retry=(APIError, ConnectionError, RateLimitError),
         )
+
+        # Cache the response
+        if use_cache and response:
+            response_cache.set(system_prompt, user_prompt, response, **kwargs)
+
+        return response
 
 
 class OllamaProvider(LLMProvider):
@@ -361,6 +522,7 @@ class OllamaProvider(LLMProvider):
                 max_tokens: The maximum tokens to generate (default: DEFAULT_MAX_TOKENS)
                 timeout: The timeout in seconds (default: DEFAULT_API_TIMEOUT)
                 debug: Whether to print debug information (default: False)
+                use_cache: Whether to use caching (default: True)
 
         Returns:
             The generated text
@@ -373,6 +535,15 @@ class OllamaProvider(LLMProvider):
         """
         debug = kwargs.get("debug", False)
         max_retries = kwargs.get("max_retries", 3)
+        use_cache = kwargs.get("use_cache", True)
+
+        # Check cache first
+        if use_cache:
+            cached_response = response_cache.get(system_prompt, user_prompt, **kwargs)
+            if cached_response:
+                if debug:
+                    print("Using cached response")
+                return cached_response
 
         # Check rate limit
         if not ollama_limiter.consume(1, wait=kwargs.get("wait_for_rate_limit", True)):
@@ -492,11 +663,17 @@ class OllamaProvider(LLMProvider):
                 raise ParseError(f"Invalid response from Ollama server: {str(e)}")
 
         # Retry with exponential backoff
-        return retry_with_exponential_backoff(
+        response = retry_with_exponential_backoff(
             _generate_completion,
             max_retries=max_retries,
             errors_to_retry=(APIError, ConnectionError),
         )
+
+        # Cache the response
+        if use_cache and response:
+            response_cache.set(system_prompt, user_prompt, response, **kwargs)
+
+        return response
 
 
 def get_llm_provider() -> LLMProvider:

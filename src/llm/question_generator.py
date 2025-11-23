@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Any
 
@@ -54,9 +55,22 @@ def parse_arguments():
 
 
 def generate_questions(
-    topic: str, num_questions: int, debug: bool = False
+    topic: str, num_questions: int, debug: bool = False, use_concurrent: bool = True
 ) -> List[Dict[str, str]]:
-    """Generate interview questions for a given topic."""
+    """Generate interview questions for a given topic.
+
+    Args:
+        topic: The topic to generate questions for
+        num_questions: The number of questions to generate
+        debug: Whether to print debug information
+        use_concurrent: Whether to use concurrent batch generation (default: True)
+
+    Returns:
+        A list of generated questions
+
+    Raises:
+        ValueError: If the inputs are invalid or generation fails
+    """
     # Validate inputs
     if not topic or not isinstance(topic, str) or not topic.strip():
         raise ValueError("Topic must be a non-empty string")
@@ -65,10 +79,71 @@ def generate_questions(
         raise ValueError("Number of questions must be a positive integer")
 
     provider = get_llm_provider()
+    batch_size = DEFAULT_BATCH_SIZE
 
-    # Generate questions in batches
+    if not use_concurrent:
+        # Fallback to sequential generation
+        return _generate_questions_sequential(provider, topic, num_questions, debug)
+
+    # Calculate number of batches
+    num_batches = (num_questions + batch_size - 1) // batch_size
+    batch_sizes = [batch_size] * (num_batches - 1)
+    if num_questions % batch_size != 0:
+        batch_sizes.append(num_questions % batch_size)
+    else:
+        batch_sizes.append(batch_size)
+
+    if debug:
+        print(f"Generating {num_questions} questions in {num_batches} concurrent batches")
+
     questions = []
-    batch_size = DEFAULT_BATCH_SIZE  # Use configured batch size
+    max_workers = min(4, num_batches)  # Limit concurrent requests to avoid overwhelming the API
+
+    # Use ThreadPoolExecutor for concurrent batch generation
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all batch generation tasks
+        future_to_batch = {
+            executor.submit(
+                generate_questions_batch,
+                provider,
+                topic,
+                size,
+                None,  # Don't pass existing questions to avoid race conditions
+                debug
+            ): i for i, size in enumerate(batch_sizes)
+        }
+
+        # Collect results as they complete
+        for future in as_completed(future_to_batch):
+            batch_idx = future_to_batch[future]
+            try:
+                batch_questions = future.result()
+                if batch_questions:
+                    questions.extend(batch_questions)
+                    if debug:
+                        print(f"Batch {batch_idx + 1}/{num_batches} completed: {len(batch_questions)} questions")
+            except Exception as e:
+                if debug:
+                    print(f"Batch {batch_idx + 1} failed: {str(e)}")
+                # Continue with other batches even if one fails
+
+    # Check if we got enough questions
+    if not questions:
+        raise ValueError("Failed to generate any questions")
+
+    if debug:
+        print(f"Generated {len(questions)} total questions (requested: {num_questions})")
+
+    # Return up to the requested number
+    return questions[:num_questions]
+
+
+def _generate_questions_sequential(
+    provider: LLMProvider, topic: str, num_questions: int, debug: bool = False
+) -> List[Dict[str, str]]:
+    """Generate questions sequentially (fallback method)."""
+    questions = []
+    batch_size = DEFAULT_BATCH_SIZE
     remaining = num_questions
     max_retries = 3
 

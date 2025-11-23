@@ -21,8 +21,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 # Make sure we can find our packages
 sys.path.append(os.path.dirname(__file__))
+# Dynamically construct the path to site-packages based on current Python version
+python_version = f"python{sys.version_info.major}.{sys.version_info.minor}"
 sys.path.append(
-    os.path.join(os.path.dirname(__file__), "venv/lib/python3.12/site-packages")
+    os.path.join(os.path.dirname(__file__), f"venv/lib/{python_version}/site-packages")
 )
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 
